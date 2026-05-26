@@ -1,25 +1,24 @@
 import requests
-import json
 import datetime
 
 print("Uruchamiam scrapera w GitHub Actions...")
 
-# 1. Tutaj w przyszłości dodamy kod wyciągający prawdziwe statystyki Smite 2
-dane_do_wyslania = {
+# 1. Tworzymy paczkę danych, która idealnie pasuje do naszego modelu SmiteData w FastAPI
+nowe_dane = {
     "aktualizacja": str(datetime.datetime.now()),
-    "wiadomosc": "Scraper zebral dane!",
-    "dane_testowe": ["Kuzenbo to najlepszy bog", "Ymir", "Loki"]
+    "wiadomosc": "Paczka dostarczona pomyslnie POSTem z GitHuba!",
+    "dane": ["Kuzenbo", "Ymir", "Loki", "Nowe Statystyki Smite 2"]
 }
 
-print("Dane zebrane. Przygotowuje do wyslania...")
+print("Paczka przygotowana. Wysylam do Oracle...")
 
-# 2. To jest adres IP Twojego serwera Oracle, z ktorym sie laczymy!
-url_serwera = "http://92.5.91.226:8000"
+# 2. Uderzamy w nasz nowy endpoint /update
+url_serwera = "http://92.5.91.226:8000/update"
 
 try:
-    # Na razie uderzamy w glowny adres, zeby sprawdzic czy serwer odpowiada
-    odpowiedz = requests.get(url_serwera)
-    print(f"Sukces! Serwer Oracle odpowiedzial kodem: {odpowiedz.status_code}")
-    print(f"Tresc z serwera Oracle: {odpowiedz.text}")
+    # Używamy metody POST (wysyłanie) zamiast GET (pobieranie) i doklejamy naszą paczkę JSON
+    odpowiedz = requests.post(url_serwera, json=nowe_dane)
+    print(f"Sukces! Serwer odpowiedzial kodem: {odpowiedz.status_code}")
+    print(f"Tresc odpowiedzi z Oracle: {odpowiedz.text}")
 except Exception as e:
-    print(f"Wystapil blad podczas laczenia z Oracle: {e}")
+    print(f"Wystapil blad podczas laczenia: {e}")
