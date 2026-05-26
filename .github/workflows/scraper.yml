@@ -1,0 +1,23 @@
+name: Kuzenbot Scraper
+
+on:
+  workflow_dispatch: # Ten wpis pozwala nam odpalać skrypt ręcznie (przyciskiem) do testów
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Pobranie kodu repozytorium
+      uses: actions/checkout@v4
+
+    - name: Konfiguracja Pythona
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Instalacja wymaganych bibliotek
+      run: pip install -r requirements.txt
+
+    - name: Uruchomienie scrapera
+      run: python scraper.py
