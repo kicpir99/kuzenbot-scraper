@@ -21,7 +21,7 @@ class SmiteSourceScraper:
         
         # Optymalizacja połączeń HTTP (zwiększenie rozmiaru puli dla 25 wątków)
         from requests.adapters import HTTPAdapter
-        adapter = HTTPAdapter(pool_connections=4, pool_maxsize=4)
+        adapter = HTTPAdapter(pool_connections=50, pool_maxsize=50)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
         
@@ -34,7 +34,7 @@ class SmiteSourceScraper:
         
         # Reuse thread pool to avoid constant creation/destruction overhead
         from concurrent.futures import ThreadPoolExecutor
-        self.executor = ThreadPoolExecutor(max_workers=4)
+        self.executor = ThreadPoolExecutor(max_workers=15)
         
         self.base_url = "https://smitesource.com"
         # Próbujemy alternatywny punkt dostępu do Wiki
