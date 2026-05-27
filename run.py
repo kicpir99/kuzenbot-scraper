@@ -39,7 +39,7 @@ except Exception as e:
 
 dane_bogow_dict = {}
 # Dla testu bierzemy tylko 5 pierwszych postaci (alfabetycznie)
-for bog in baza_bogow[:5]:
+for bog in baza_bogow:
     print(f"Pobieram dane dla: {bog}")
     dane_boga = scraper_engine.get_all_builds(bog)
     if dane_boga and dane_boga.builds:
