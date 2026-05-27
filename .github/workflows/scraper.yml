@@ -21,5 +21,7 @@ jobs:
     - name: Instalacja wymaganych bibliotek
       run: pip install -r requirements.txt
 
-    - name: Uruchomienie scrapera
+    - name: Run Scraper
+      env:
+        ORACLE_IP: ${{ secrets.ORACLE_IP }}
       run: python run.py
