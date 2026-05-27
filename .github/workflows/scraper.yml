@@ -1,7 +1,9 @@
 name: Kuzenbot Scraper
 
 on:
-  workflow_dispatch: # Ten wpis pozwala nam odpalać skrypt ręcznie (przyciskiem) do testów
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4,16 * * *'
 
 jobs:
   run-scraper:
