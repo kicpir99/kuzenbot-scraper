@@ -11,7 +11,7 @@ print("Inicjalizacja potężnego silnika (Wersja TESTOWA - 2 BOGÓW)...")
 scraper_engine = SmiteSourceScraper()
 
 # Sztywne ustawienie tylko 2 postaci dla błyskawicznego testu:
-baza_bogow = ["Kuzenbo", "Ymir"]
+baza_bogow = ["Apollo", "Ares"]
 print(f"Pobrano do przetworzenia: {baza_bogow}")
 
 dane_builds_dict = {}
