@@ -95,7 +95,14 @@ nowe_dane = {
 }
 
 try:
-    odpowiedz = requests.post("http://92.5.91.226:8000/update", json=nowe_dane)
-    print(f"Sukces: Oracle odpowiedział kodem: {odpowiedz.status_code}")
-except Exception as e:
-    print(f"Błąd wysyłki: {e}")
+    import os
+
+base_url = os.environ.get("ORACLE_IP")
+if base_url:
+    try:
+        odpowiedz = requests.post(f"{base_url}/update", json=nowe_dane)
+        print(f"Sukces: Oracle odpowiedział kodem: {odpowiedz.status_code}")
+    except Exception as e:
+        print(f"Błąd wysyłki: {e}")
+else:
+    print("Błąd: Nie znaleziono adresu IP w GitHub Secrets!")
