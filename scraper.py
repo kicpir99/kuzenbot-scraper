@@ -2,6 +2,7 @@ import requests
 import json
 import re
 import os
+import random
 from bs4 import BeautifulSoup
 from models import SmiteBuild, GodData
 
@@ -34,7 +35,7 @@ class SmiteSourceScraper:
         
         # Reuse thread pool to avoid constant creation/destruction overhead
         from concurrent.futures import ThreadPoolExecutor
-        self.executor = ThreadPoolExecutor(max_workers=15)
+        self.executor = ThreadPoolExecutor(max_workers=3)
         
         self.base_url = "https://smitesource.com"
         # Próbujemy alternatywny punkt dostępu do Wiki
@@ -56,7 +57,7 @@ class SmiteSourceScraper:
         }
 
 
-    def _get_with_retry(self, url: str, timeout: int = 10, max_retries: int = 3, use_session: bool = True, label: str = "Request"):
+    def _get_with_retry(self, url: str, timeout: int = 25, max_retries: int = 3, use_session: bool = True, label: str = "Request"):
         import time
         for attempt in range(1, max_retries + 1):
             try:
@@ -66,13 +67,13 @@ class SmiteSourceScraper:
                     res = requests.get(url, timeout=timeout)
                 if res.status_code == 200:
                     return res
-                # Jeśli kod statusu jest błędny, odczekaj przed ponowieniem
-                time.sleep(0.5 * attempt)
+                # Odczekaj LOSOWY czas przed ponowieniem
+                time.sleep(random.uniform(2.0, 4.0))
             except requests.exceptions.RequestException as e:
                 if attempt == max_retries:
                     print(f"[{label}] Błąd pobierania {url} po {max_retries} próbach: {e}")
                     raise e
-                time.sleep(0.5 * attempt)
+                time.sleep(random.uniform(2.0, 4.0))
         return None
 
     def _load_item_db(self):
@@ -866,7 +867,7 @@ class SmiteSourceScraper:
             ajax_param = "&ajax=1" if is_ajax else ""
             url = f"https://smite2.live/god/{god_slug}/builds?skill={skill}&mode=conquest-ranked{role_filter}&v={version}&page={page}&pp={per_page}{ajax_param}"
             try:
-                res = self._get_with_retry(url, timeout=10, max_retries=3, use_session=True, label="Scraper Stats")
+                res = self._get_with_retry(url, timeout=25, max_retries=3, use_session=True, label="Scraper Stats")
                 if not res or res.status_code != 200:
                     return {"matches": [], "max_page": 1}
                 
