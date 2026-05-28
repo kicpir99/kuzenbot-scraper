@@ -1334,6 +1334,19 @@ class SmiteSourceScraper:
                 insufficient_data=False
             ))
 
+        zdeduplikowane = {}
+        for b in builds:
+            # Jako unikalnego klucza używamy tytułu (np. "Jungle (Meta Stats - OB35.0)")
+            if b.title not in zdeduplikowane:
+                zdeduplikowane[b.title] = b
+            else:
+                # Jeśli build już jest na liście, priorytetyzujemy poprawny (zielony) nad błędem (czerwonym)
+                if not b.insufficient_data and zdeduplikowane[b.title].insufficient_data:
+                    zdeduplikowane[b.title] = b
+                    
+        builds = list(zdeduplikowane.values())
+        # ---------------------------------------------------------------
+
         # Sortuj buildy: najpierw obecny patch (zielone), potem poprzednie (żółte), na końcu czerwone (niespełniające).
         # W ramach każdej grupy: po liczbie gier (malejąco).
         def get_patch_num(v):
