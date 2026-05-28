@@ -65,25 +65,61 @@ def process_god(bog):
         
     return bog, b_data, s_data
 
-print(f"\nUruchamiam wielowątkowe pobieranie (3 wątki robocze)...")
+print(f"\nUruchamiam wielowątkowe pobieranie (TURA 1)...")
 
-# Ustalone 3 wątki robocze (Optymalny kompromis między szybkością a bezpieczeństwem IP)
+# Ustalone 3 wątki robocze
+failed_gods = set()
+
 with ThreadPoolExecutor(max_workers=3) as executor:
     przyszle_wyniki = {executor.submit(process_god, bog): bog for bog in baza_bogow}
     
     for future in as_completed(przyszle_wyniki):
         bog, b_data, s_data = future.result()
+        
         if b_data:
             dane_builds_dict[bog.lower()] = b_data
         if s_data:
             dane_stats_dict[bog.lower()] = s_data
-        print(f"[Zakończono] ✅ {bog}")
+            
+        # WERYFIKACJA BRAKÓW DO DRUGIEJ TURY
+        if not b_data or not s_data:
+            print(f"[Błąd/Brak Danych] ❌ {bog} - dodaję do listy naprawczej.")
+            failed_gods.add(bog)
+        else:
+            print(f"[Zakończono] ✅ {bog}")
 
-print("\nWszystkie wątki zakończyły pracę. Przygotowuję paczkę do wysyłki...")
+# ========================================================
+# 🔄 TURA 2: SYSTEM NAPRAWCZY (RETRY QUEUE)
+# ========================================================
+if failed_gods:
+    print(f"\n⚠️ Wykryto niepełne dane dla {len(failed_gods)} postaci.")
+    print("⏳ Daję serwerom (SmiteSource/Smite2Live) 15 sekund na odblokowanie połączeń (timeout recovery)...")
+    time.sleep(15)
+    
+    print("\n🚀 Uruchamiam system naprawczy (TURA 2)...")
+    # Puszczamy powtórkę sekwencyjnie (pojedynczo), aby maksymalnie oszczędzić przeciążone serwery
+    for bog in failed_gods:
+        print(f"\n[Retry] Ostateczna próba dla: {bog}")
+        bog, b_data, s_data = process_god(bog)
+        
+        # Aktualizacja paczki o uratowane dane
+        if b_data and bog.lower() not in dane_builds_dict:
+            dane_builds_dict[bog.lower()] = b_data
+            print(f"[Retry] ✅ URATOWANO buildy (Community) dla: {bog}")
+            
+        if s_data and bog.lower() not in dane_stats_dict:
+            dane_stats_dict[bog.lower()] = s_data
+            print(f"[Retry] ✅ URATOWANO buildy (Stats) dla: {bog}")
+            
+        if not b_data or not s_data:
+            print(f"[Retry] ❌ Ostateczny brak niektórych danych dla: {bog}. Pomijam w tym patchu.")
+
+
+print("\n🎉 Wszystkie tury zakończyły pracę. Przygotowuję paczkę do wysyłki...")
 
 nowe_dane = {
     "aktualizacja": str(datetime.datetime.now()),
-    "wiadomosc": "Paczka Produkcyjna (Wszystkie postacie) - Potężny system Statystyk!",
+    "wiadomosc": "Paczka Produkcyjna (Wszystkie postacie) - Potężny system Statystyk z Retry Queue!",
     "dane_builds": dane_builds_dict,
     "dane_stats": dane_stats_dict
 }
