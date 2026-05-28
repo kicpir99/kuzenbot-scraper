@@ -1143,10 +1143,15 @@ class SmiteSourceScraper:
 
             # Sprawdzamy, czy każdy z 6 slotów na przedmioty ma co najmniej 2 unikalne przedmioty,
             # a slot na starter zawiera co najmniej 1 przedmiot.
-            has_enough_variety = (
-                len(starter_counter) >= 1 and
-                all(len(slot_counters[i]) >= 2 for i in range(6))
-            )
+            if god_name.lower() == "ratatoskr":
+                # Ratatoskr ma ucięte buildy, więc nie wymagamy pełnych 6 slotów!
+                # Wystarczy, że spełni wymóg 30 rozegranych meczów.
+                has_enough_variety = True
+            else:
+                has_enough_variety = (
+                    len(starter_counter) >= 1 and
+                    all(len(slot_counters[i]) >= 2 for i in range(6))
+                )
             
             sufficient = (total_games >= 30) and has_enough_variety
             return sufficient, starter_counter, slot_counters, relic_counter, total_games
@@ -1231,19 +1236,16 @@ class SmiteSourceScraper:
             
             if insufficient:
                 # Wyznaczamy powód braku wiarygodności
-                # (Jeśli has_enough_variety dla wybranego zestawu danych jest fałszem)
-                # Obliczamy variety na nowo dla wybranego target_version
-                has_enough_variety = (
-                    len(starter_counter) >= 1 and
-                    all(len(slot_counters[i]) >= 2 for i in range(6))
-                )
-                
                 if total_games < 30:
                     reason = f"[!] Niewystarczająca liczba rozegranych meczów na roli {role} (Rozegrano: {total_games} / 30)"
                     reason_mini = f"[!] Mało gier na roli {role} ({total_games}/30)"
                 else:
-                    reason = f"[!] Zbyt mała różnorodność przedmiotów na roli {role} (wymagane min. 2 unikalne przedmioty na slot)"
-                    reason_mini = f"[!] Mała różnorodność na roli {role}"
+                    if god_name.lower() == "ratatoskr":
+                        reason = f"[!] Brak spójnych danych o przedmiotach dla roli {role}."
+                        reason_mini = f"[!] Brak danych dla {role}"
+                    else:
+                        reason = f"[!] Zbyt mała różnorodność przedmiotów na roli {role} (wymagane min. 2 unikalne przedmioty na slot)"
+                        reason_mini = f"[!] Mała różnorodność na roli {role}"
                     
                 builds.append(SmiteBuild(
                     title=f"{role}{aspect_suffix} (Meta Stats - {target_version.upper()})",
