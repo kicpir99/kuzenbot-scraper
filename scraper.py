@@ -22,7 +22,17 @@ class SmiteSourceScraper:
         
         # Optymalizacja połączeń HTTP (zwiększenie rozmiaru puli dla 25 wątków)
         from requests.adapters import HTTPAdapter
-        adapter = HTTPAdapter(pool_connections=50, pool_maxsize=50)
+        from urllib3.util.retry import Retry
+        
+        # Definiujemy strategię ponawiania (silnik sam powtórzy zapytanie bez przerywania skryptu!)
+        retry_strategy = Retry(
+            total=4,             # Maksymalnie 4 próby pobrania
+            backoff_factor=1.5,  # Odstępy: 1.5s, 3s, 4.5s między próbami
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"]
+        )
+        
+        adapter = HTTPAdapter(pool_connections=50, pool_maxsize=50, max_retries=retry_strategy)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
         
@@ -786,7 +796,7 @@ class SmiteSourceScraper:
         # 1. Sprawdź liczbę gier na aktualnym patchu
         url_initial = f"https://smite2.live/god/{god_slug}/builds?skill=master_plus"
         try:
-            r = self.session.get(url_initial, timeout=8)
+            r = self.session.get(url_initial, timeout=15)
             soup = BeautifulSoup(r.text, 'html.parser')
         except Exception as e:
             print(f"[Scraper Stats] Błąd połączenia z smite2.live ({e})")
