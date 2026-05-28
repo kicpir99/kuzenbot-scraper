@@ -37,6 +37,8 @@ except Exception as e:
     # Fallback awaryjny
     baza_bogow = ["Kuzenbo", "Ymir"]
 
+baza_bogow = ["Ratatoskr"]
+
 dane_builds_dict = {}
 dane_stats_dict = {}
 
