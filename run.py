@@ -35,9 +35,25 @@ try:
 except Exception as e:
     print(f"Błąd pobierania listy: {e}")
     # Fallback awaryjny
-    baza_bogow = ["Kuzenbo", "Ymir"]
-
-baza_bogow = ["Ratatoskr"]
+    baza_bogow = [
+        "Achilles", "Agni", "Ah Puch", "Aladdin", "Amaterasu",
+        "Anhur", "Anubis", "Aphrodite", "Apollo", "Ares",
+        "Artemis", "Artio", "Athena", "Atlas", "Awilix",
+        "Bacchus", "Baron Samedi", "Bellona", "Cabrakan", "Cerberus",
+        "Cernunnos", "Chaac", "Charon", "Chiron", "Cupid",
+        "Da Ji", "Danzaburou", "Discordia", "Eset", "Fenrir",
+        "Ganesha", "Geb", "Gilgamesh", "Guan Yu", "Hades",
+        "Hecate", "Hercules", "Hou Yi", "Hua Mulan", "Hun Batz",
+        "Ishtar", "Izanami", "Janus", "Jing Wei", "Jormungandr",
+        "Kali", "Khepri", "Kukulkan", "Loki", "Medusa",
+        "Mercury", "Merlin", "Mordred", "Morgan Le Fay", "Ne Zha",
+        "Neith", "Nemesis", "Nu Wa", "Nut", "Odin",
+        "Osiris", "Pele", "Poseidon", "Princess Bari", "Ra",
+        "Rama", "Ratatoskr", "Scylla", "Sobek", "Sol",
+        "Sun Wukong", "Susano", "Sylvanus", "Thanatos", "The Morrigan",
+        "Thor", "Tsukuyomi", "Ullr", "Vulcan", "Xbalanque",
+        "Yemoja", "Ymir", "Zeus"
+    ]
 
 dane_builds_dict = {}
 dane_stats_dict = {}
