@@ -982,7 +982,15 @@ class SmiteSourceScraper:
             # Filtrujemy mecze tak, aby należały do odpowiedniej wersji (np. ob35 dla ob35.0)
             filtered_matches = []
             for m in all_matches:
-                if version_matches(m.get("patch", ""), version):
+                if version_matches(m.get('patch', ''), version):
+                    # --- ZMIANA 2: Smart Fill dla Ratatoskra ---
+                    if god_slug.lower() == "ratatoskr":
+                        if len(m['items']) < 4:
+                            continue  # Odrzucamy mecze z mniej niż 4 przedmiotami
+                        missing = 6 - len(m['items'])
+                        if missing > 0:
+                            m['items'] = ["Ratatoskr Acorn"] * missing + m['items']
+                    # -------------------------------------------
                     filtered_matches.append(m)
             print(f"[Scraper Stats] ({version}) Po przefiltrowaniu pod kątem patcha pozostało {len(filtered_matches)} / {len(all_matches)} meczów.")
             
@@ -1034,7 +1042,15 @@ class SmiteSourceScraper:
                 # Filtrujemy mecze Obsidian+ tak, aby należały do odpowiedniej wersji
                 filtered_obsidian = []
                 for m in obsidian_matches:
-                    if version_matches(m.get("patch", ""), version):
+                    if version_matches(m.get('patch', ''), version):
+                        # --- ZMIANA 3: Smart Fill dla Ratatoskra (Obsidian+) ---
+                        if god_slug.lower() == "ratatoskr":
+                            if len(m['items']) < 4:
+                                continue
+                            missing = 6 - len(m['items'])
+                            if missing > 0:
+                                m['items'] = ["Ratatoskr Acorn"] * missing + m['items']
+                        # -------------------------------------------------------
                         filtered_obsidian.append(m)
                 print(f"[Scraper Stats] ({version}) Po przefiltrowaniu Obsidian+ pozostało {len(filtered_obsidian)} / {len(obsidian_matches)} meczów.")
                 
@@ -1143,10 +1159,16 @@ class SmiteSourceScraper:
 
             # Sprawdzamy, czy każdy z 6 slotów na przedmioty ma co najmniej 2 unikalne przedmioty,
             # a slot na starter zawiera co najmniej 1 przedmiot.
-            has_enough_variety = (
-                len(starter_counter) >= 1 and
-                all(len(slot_counters[i]) >= 2 for i in range(6))
-            )
+            if god_name.lower() == "ratatoskr":
+                has_enough_variety = (
+                    len(starter_counter) >= 1 and
+                    all(len(slot_counters[i]) >= 1 for i in range(6))
+                )
+            else:
+                has_enough_variety = (
+                    len(starter_counter) >= 1 and
+                    all(len(slot_counters[i]) >= 2 for i in range(6))
+                )
             
             sufficient = (total_games >= 30) and has_enough_variety
             return sufficient, starter_counter, slot_counters, relic_counter, total_games
