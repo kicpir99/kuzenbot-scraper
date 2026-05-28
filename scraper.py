@@ -1160,10 +1160,8 @@ class SmiteSourceScraper:
             # Sprawdzamy, czy każdy z 6 slotów na przedmioty ma co najmniej 2 unikalne przedmioty,
             # a slot na starter zawiera co najmniej 1 przedmiot.
             if god_name.lower() == "ratatoskr":
-                has_enough_variety = (
-                    len(starter_counter) >= 1 and
-                    all(len(slot_counters[i]) >= 1 for i in range(6))
-                )
+                # Ratatoskr nie kupuje starterów (rushuje żołądź), więc zdejmujemy wymóg startera!
+                has_enough_variety = all(len(slot_counters[i]) >= 1 for i in range(6))
             else:
                 has_enough_variety = (
                     len(starter_counter) >= 1 and
@@ -1253,16 +1251,17 @@ class SmiteSourceScraper:
             
             if insufficient:
                 # Wyznaczamy powód braku wiarygodności
-                # (Jeśli has_enough_variety dla wybranego zestawu danych jest fałszem)
-                # Obliczamy variety na nowo dla wybranego target_version
-                has_enough_variety = (
-                    len(starter_counter) >= 1 and
-                    all(len(slot_counters[i]) >= 2 for i in range(6))
-                )
+                if god_name.lower() == "ratatoskr":
+                    has_enough_variety = all(len(slot_counters[i]) >= 1 for i in range(6))
+                else:
+                    has_enough_variety = (
+                        len(starter_counter) >= 1 and
+                        all(len(slot_counters[i]) >= 2 for i in range(6))
+                    )
                 
                 if total_games < 30:
-                    reason = f"[!] Niewystarczająca liczba rozegranych meczów na roli {role} (Rozegrano: {total_games} / 30)"
-                    reason_mini = f"[!] Mało gier na roli {role} ({total_games}/30)"
+                    reason = f"[!] Niewystarczająca liczba rozegranych meczów na roli {role} (Rozegrano {total_games} < 30)"
+                    reason_mini = f"[!] Mało gier na roli {role} ({total_games}<30)"
                 else:
                     reason = f"[!] Zbyt mała różnorodność przedmiotów na roli {role} (wymagane min. 2 unikalne przedmioty na slot)"
                     reason_mini = f"[!] Mała różnorodność na roli {role}"
