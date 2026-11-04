@@ -12,6 +12,7 @@ class SmiteBuild:
     relics: list[str] = field(default_factory=list)
     consumables: list[str] = field(default_factory=list)
     swap_items: list[dict] = field(default_factory=list) # [{'from': 'A', 'to': 'B', 'reason': 'Why'}]
+    special_equipment: list[str] = field(default_factory=list)
     build_url: str = ""
     upvotes: int = 0
     author: str = "Unknown"

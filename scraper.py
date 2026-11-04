@@ -571,6 +571,10 @@ class SmiteSourceScraper:
                         consumables_raw = [it for it in items if it.get("itemSlot") in (8, 9)]
                         consumables = [(it.get("item") or {}).get("name") for it in consumables_raw if (it.get("item") or {}).get("name")]
                         
+                        # 4. Special Equipment (np. Vulcan Inventions / Mods: sloty 11, 12, 13)
+                        special_raw = sorted([it for it in items if not it.get("isStartingBuild") and 11 <= it.get("itemSlot", 0) <= 15], key=lambda x: x.get("itemSlot", 0))
+                        special_equipment = [(it.get("item") or {}).get("name") for it in special_raw if (it.get("item") or {}).get("name")]
+                        
                         # Statystyki (Match evidence & win rate wg SmiteSource)
                         games = rb.get("matchEvidenceGames") or 0
                         wins = min(games, rb.get("matchEvidenceWins") or 0)
@@ -647,6 +651,7 @@ class SmiteSourceScraper:
                             relics=relics,
                             consumables=consumables,
                             swap_items=optional_swaps,
+                            special_equipment=special_equipment,
                             build_url=f"{self.base_url}/build/{rb_slug}",
                             upvotes=int(rb.get("upvoteCount") or games or 0),
                             author=str(author_name),
