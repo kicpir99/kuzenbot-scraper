@@ -45,12 +45,6 @@ try:
             if name not in baza_bogow:
                 baza_bogow.append(name)
     print(f"Pobrano {len(baza_bogow)} bogów do przetworzenia.")
-
-# --- TRYB TESTOWY (pusta lista [] oznacza pobieranie wszystkich bogów) ---
-TEST_GODS = []
-if TEST_GODS:
-    baza_bogow = TEST_GODS
-    print(f"[TRYB TESTOWY] Ograniczono pobieranie do {len(baza_bogow)} postaci: {baza_bogow}")
 except Exception as e:
     print(f"Błąd pobierania listy: {e}")
     # Fallback awaryjny
@@ -73,6 +67,12 @@ except Exception as e:
         "Thor", "Tsukuyomi", "Ullr", "Vulcan", "Xbalanque",
         "Yemoja", "Ymir", "Zeus"
     ]
+
+# --- TRYB TESTOWY (pusta lista [] oznacza pobieranie wszystkich bogów) ---
+TEST_GODS = []
+if TEST_GODS:
+    baza_bogow = TEST_GODS
+    print(f"[TRYB TESTOWY] Ograniczono pobieranie do {len(baza_bogow)} postaci: {baza_bogow}")
 
 dane_builds_dict = {}
 dane_stats_dict = {}
