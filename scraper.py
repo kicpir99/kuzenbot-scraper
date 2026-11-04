@@ -1324,11 +1324,13 @@ class SmiteSourceScraper:
             if insufficient:
                 # Wyznaczamy powód braku wiarygodności
                 if total_games < 30:
-                    reason = f"[!] Niewystarczająca liczba rozegranych meczów na roli {role} (Rozegrano: {total_games} / 30)"
-                    reason_mini = f"[!] Mało gier na roli {role} ({total_games}/30)"
+                    reason_type = "low_games"
+                    reason = f"[!] Insufficient matches on role {role} (Played: {total_games} / 30)"
+                    reason_mini = f"[!] Low matches on role {role} ({total_games}/30)"
                 else:
-                    reason = f"[!] Zbyt mała różnorodność przedmiotów na roli {role} (wymagane min. 2 unikalne przedmioty na slot)"
-                    reason_mini = f"[!] Mała różnorodność na roli {role}"
+                    reason_type = "low_variety"
+                    reason = f"[!] Insufficient item variety on role {role} (min. 2 unique items per slot required)"
+                    reason_mini = f"[!] Low item variety on role {role}"
                     
                 builds.append(SmiteBuild(
                     title=f"{role}{aspect_suffix} (Meta Stats - {target_version.upper()})",
@@ -1346,6 +1348,8 @@ class SmiteSourceScraper:
                     is_partner=True,
                     is_stats=True,
                     stats_data={
+                        "reason_type": reason_type,
+                        "total_games": total_games,
                         "insufficient_reason": reason,
                         "insufficient_reason_mini": reason_mini,
                         "uses_obsidian": (role, aspect) in version_needs_obsidian
