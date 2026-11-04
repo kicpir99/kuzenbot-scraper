@@ -709,7 +709,7 @@ class SmiteSourceScraper:
             
             # 1. Ability details (Slot 1-4)
             if not build_obj.ability_details:
-                pattern = re.compile(r'\\"ability\\":\{\\"name\\":\\"(?P<name>[^"]+)\\",\\"imgPath\\":\\"(?P<img_path>[^"]+)\\",\\"slot\\":(?P<slot>[1-4])')
+                ability_pattern = re.compile(r'\\"ability\\":\{\\"name\\":\\"(?P<name>[^"]+)\\",\\"imgPath\\":\\"(?P<img_path>[^"]+)\\",\\"slot\\":(?P<slot>[1-4])')
                 details = {}
                 for m in ability_pattern.finditer(stream):
                     slot = m.group("slot")
