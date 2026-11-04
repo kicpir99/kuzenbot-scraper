@@ -41,11 +41,18 @@ class GodData:
 
     def get_best_match(self, role: str = "mid", want_aspect: bool = False):
         """Logika wybierania najlepszego buildu z listy."""
-        # Filtrujemy tylko najnowszy patch
+        if not self.builds:
+            return None
+        # Najpierw szukamy w aktualnym patchu, a w razie braku używamy wszystkich dostępnych buildów
         valid = [b for b in self.builds if b.patch == self.current_patch]
-        if not valid: return None
+        if not valid:
+            valid = self.builds
 
         # Szukamy dopasowania roli i aspektu
         matches = [b for b in valid if b.is_aspect == want_aspect and any(role.lower() == r.lower() for r in b.roles)]
+        if not matches and want_aspect:
+            matches = [b for b in valid if any(role.lower() == r.lower() for r in b.roles)]
+        
+        return matches[0] if matches else valid[0]
         
         return matches[0] if matches else valid[0]
