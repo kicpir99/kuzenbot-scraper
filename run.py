@@ -1,3 +1,4 @@
+import json
 import requests
 import re
 import datetime
@@ -14,24 +15,42 @@ scraper_engine = SmiteSourceScraper()
 print("Skanowanie SmiteSource w poszukiwaniu bogów...")
 baza_bogow = []
 try:
-    r = requests.get('https://smitesource.com/gods', headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
-    frags = re.findall(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', r.text)
-    stream = ''.join(frags).replace('\\"', '"')
-    slugs = sorted(set(re.findall(r'"slug":"([a-z0-9-]+)"', stream)))
-
-    special = {
-        'the-morrigan': 'The Morrigan', 'baron-samedi': 'Baron Samedi',
-        'da-ji': 'Da Ji', 'guan-yu': 'Guan Yu', 'hou-yi': 'Hou Yi',
-        'hun-batz': 'Hun Batz', 'jing-wei': 'Jing Wei',
-        'morgan-le-fay': 'Morgan Le Fay', 'ne-zha': 'Ne Zha',
-        'nu-wa': 'Nu Wa', 'sun-wukong': 'Sun Wukong',
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
-
-    for slug in slugs:
-        name = special.get(slug, slug.replace('-', ' ').title())
-        if name not in baza_bogow:
-            baza_bogow.append(name)
+    r = requests.get('https://smitesource.com/builds', headers=headers, timeout=15)
+    m = re.search(r'\\"initialGods\\":(\[\{.+?\}\])(?:,\\"|\})', r.text)
+    if m:
+        raw = m.group(1).replace(chr(92) + chr(34), chr(34)).replace(chr(92) + chr(92), chr(92))
+        gods_list = json.loads(raw)
+        for g in gods_list:
+            g_name = g.get("name")
+            if g_name and g_name not in baza_bogow:
+                baza_bogow.append(g_name)
+    else:
+        r_gods = requests.get('https://smitesource.com/gods', headers=headers, timeout=15)
+        slugs = sorted(set(re.findall(r'"slug":"([a-z0-9-]+)"', r_gods.text)))
+        special = {
+            'the-morrigan': 'The Morrigan', 'baron-samedi': 'Baron Samedi',
+            'da-ji': 'Da Ji', 'guan-yu': 'Guan Yu', 'hou-yi': 'Hou Yi',
+            'hun-batz': 'Hun Batz', 'jing-wei': 'Jing Wei',
+            'morgan-le-fay': 'Morgan Le Fay', 'ne-zha': 'Ne Zha',
+            'nu-wa': 'Nu Wa', 'sun-wukong': 'Sun Wukong',
+            'bari': 'Princess Bari', 'mulan': 'Hua Mulan',
+        }
+        for slug in slugs:
+            if slug in ("gods", "builds", "items"): continue
+            name = special.get(slug, slug.replace('-', ' ').title())
+            if name not in baza_bogow:
+                baza_bogow.append(name)
     print(f"Pobrano {len(baza_bogow)} bogów do przetworzenia.")
+
+# --- TRYB TESTOWY (pusta lista [] oznacza pobieranie wszystkich bogów) ---
+TEST_GODS = []
+if TEST_GODS:
+    baza_bogow = TEST_GODS
+    print(f"[TRYB TESTOWY] Ograniczono pobieranie do {len(baza_bogow)} postaci: {baza_bogow}")
 except Exception as e:
     print(f"Błąd pobierania listy: {e}")
     # Fallback awaryjny
@@ -134,6 +153,13 @@ if failed_gods:
 
 
 print("\n🎉 Wszystkie tury zakończyły pracę. Przygotowuję paczkę do wysyłki...")
+
+# Zapis pod krótkimi aliasami (bari / mulan) dla pełnej kompatybilności z serwerem i klientem
+for full_key, short_key in [("princess bari", "bari"), ("hua mulan", "mulan")]:
+    if full_key in dane_builds_dict and short_key not in dane_builds_dict:
+        dane_builds_dict[short_key] = dane_builds_dict[full_key]
+    if full_key in dane_stats_dict and short_key not in dane_stats_dict:
+        dane_stats_dict[short_key] = dane_stats_dict[full_key]
 
 nowe_dane = {
     "aktualizacja": str(datetime.datetime.now()),

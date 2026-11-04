@@ -147,17 +147,23 @@ class SmiteSourceScraper:
                 "God Specific": "item"
             }
 
+            t3_headings = {"Tier III - Offensive", "Tier III - Defensive", "Tier III - Hybrid"}
+            t3_acorns = {"ashwhorl acorn", "briskberry acorn", "thistlethorn acorn"}
+
             self.item_db = {}
             # Wiki może mieć różne struktury, szukamy wszystkich nagłówków i kategoryzujemy linki pod nimi
             current_category = None
+            current_heading = None
             
             for tag in soup.find_all(['h2', 'h3', 'h4', 'a']):
                 if tag.name in ['h2', 'h3', 'h4']:
                     text = tag.get_text().strip().replace('[edit]', '').strip()
                     if text in mapping:
                         current_category = mapping[text]
+                        current_heading = text
                     elif tag.name == 'h2' and text != "List of items":
                         current_category = None
+                        current_heading = None
                 
                 elif current_category and tag.name == 'a':
                     name = tag.get_text(strip=True)
@@ -181,8 +187,10 @@ class SmiteSourceScraper:
                                         "image_url": img_url
                                     }
                                 else:
+                                    is_t3 = (current_heading in t3_headings) or (name_key in t3_acorns)
                                     self.item_db[name_key] = {
                                         "category": current_category,
+                                        "is_t3": is_t3,
                                         "image_url": img_url
                                     }
             
@@ -353,7 +361,7 @@ class SmiteSourceScraper:
             return self._cached_game_patch
             
         try:
-            url = "https://smite2.live/god/ymir/builds?skill=master_plus"
+            url = "https://smite2.live/god/Ymir/builds?skill=master_plus"
             r = self.session.get(url, timeout=5)
             if r.status_code == 200:
                 soup = BeautifulSoup(r.text, 'html.parser')
@@ -376,8 +384,80 @@ class SmiteSourceScraper:
             
         return "OB35.0"
 
+    STARTER_SLOT_ORDER = {0: 0, 7: 1, 10: 2, 1: 3, 2: 4, 8: 5, 9: 6}
+    GOD_SLUG_MAP = {
+        "princess bari": "bari",
+        "hua mulan": "mulan",
+        "the morrigan": "the-morrigan",
+        "baron samedi": "baron-samedi",
+        "da ji": "da-ji",
+        "guan yu": "guan-yu",
+        "hou yi": "hou-yi",
+        "hun batz": "hun-batz",
+        "jing wei": "jing-wei",
+        "morgan le fay": "morgan-le-fay",
+        "ne zha": "ne-zha",
+        "nu wa": "nu-wa",
+        "sun wukong": "sun-wukong",
+    }
+
+    SMITE2_LIVE_SLUG_MAP = {
+        "princess bari": "Bari",
+        "hua mulan": "Mulan",
+        "da ji": "Daji",
+    }
+
+    def _calculate_tier(self, match_score: float, games: int, evidence_kind: str = "matched") -> str:
+        """Oblicza ocenę buildu (S+, S, A+, A, B, C, D) dokładnie wg progów matchScore ze SmiteSource."""
+        if games <= 0 or not match_score or match_score <= 0 or evidence_kind != "matched":
+            return ""
+        if match_score >= 8500:
+            return "S+"
+        elif match_score >= 7500:
+            return "S"
+        elif match_score >= 6500:
+            return "A+"
+        elif match_score >= 5000:
+            return "A"
+        elif match_score >= 3500:
+            return "B"
+        elif match_score >= 2000:
+            return "C"
+        else:
+            return "D"
+
+    def _get_god_abilities(self, god_slug: str, sample_build_slug: str = "") -> dict:
+        """Pobiera nazwy i ikony 4 umiejętności boga raz i cachuje je."""
+        if not hasattr(self, "god_abilities_cache"):
+            self.god_abilities_cache = {}
+        if god_slug in self.god_abilities_cache:
+            return self.god_abilities_cache[god_slug]
+            
+        url = f"{self.base_url}/build/{sample_build_slug}" if sample_build_slug else f"{self.base_url}/gods/{god_slug}"
+        abilities = {}
+        try:
+            r = self._get_with_retry(url, timeout=8, max_retries=2, use_session=True, label="GodAbilities")
+            if r and r.status_code == 200:
+                pattern = re.compile(r'\\"ability\\":\{\\"name\\":\\"(?P<name>[^"]+)\\",\\"imgPath\\":\\"(?P<img_path>[^"]+)\\",\\"slot\\":(?P<slot>[1-4])')
+                for m in pattern.finditer(r.text):
+                    slot = m.group("slot")
+                    if slot not in abilities:
+                        img_path = m.group("img_path")
+                        abilities[slot] = {
+                            "name": m.group("name"),
+                            "img": img_path,
+                            "local_path": self.download_ability_icon(img_path)
+                        }
+        except Exception as e:
+            print(f"[Scraper] Błąd pobierania umiejętności boga {god_slug}: {e}")
+            
+        if len(abilities) >= 4:
+            self.god_abilities_cache[god_slug] = abilities
+        return abilities
+
     def get_all_builds(self, god_name: str) -> GodData:
-        slug = god_name.lower().strip().replace(" ", "-").replace("'", "")
+        clean_name = god_name.lower().strip()
+        slug = self.GOD_SLUG_MAP.get(clean_name, clean_name.replace(" ", "-").replace("'", ""))
         
         # Sprawdzenie pamięci podręcznej SmiteSource (TTL = 1 godzina)
         import time
@@ -392,112 +472,208 @@ class SmiteSourceScraper:
             self.fetch_master_items()
 
         all_builds = []
-        import time
-        # Ze względu na blokady Next.js App Router, serwer stateless zawsze zwraca stronę 1.
-        # Pobieramy więc 1 stronę (10 najnowszych buildów), co i tak daje nam 2 strony w UI.
-        page = 1
-        url = f"{self.base_url}/builds?god={slug}&page={page}&t={int(time.time()*1000)}"
-        try:
-            print(f"[Scraper] Pobieranie buildów (strona {page}): {url}")
-            response = self._get_with_retry(url, timeout=10, max_retries=3, use_session=True, label="Scraper SmiteSource")
-            if response and response.status_code == 200:
-                fragments = re.findall(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', response.text)
-                if fragments:
-                    full_stream = "".join(fragments).replace('\\"', '"').replace('\\\\', '\\')
-                    
-                    # Pobieramy dynamicznie ikony ze SmiteSource CDN dla wszystkich przedmiotów w buildzie (w tym usuniętych)
-                    try:
-                        for m in re.finditer(r'"name"\s*:\s*"([^"]+)"\s*,\s*"imagePath"\s*:\s*"([^"]+)"', full_stream):
-                            item_name = m.group(1)
-                            img_path = m.group(2)
-                            self._check_and_download_smitesource_item_image(item_name, img_path)
-                    except Exception as e:
-                        print(f"[Scraper] Blad podczas dynamicznego skanowania ikon w get_all_builds: {e}")
+        first_build_slug = ""
+        ts = int(time.time() * 1000)
+        query_variants = [
+            ("recent_base", f"{self.base_url}/builds?god={slug}&sort=recent&aspect=base&t={ts}"),
+            ("recent_aspect", f"{self.base_url}/builds?god={slug}&sort=recent&aspect=aspect&t={ts}"),
+        ]
 
-                    # Wycinanie JSONA buildów
-                    raw_builds = None
+        def _extract_raw_builds_from_html(html_text: str) -> list:
+            extracted = []
+            # 1. Nowy format Next.js RSC payload ("initialBuilds":)
+            esc_marker = chr(92) + '"initialBuilds' + chr(92) + '":'
+            idx = html_text.find(esc_marker)
+            if idx != -1:
+                raw = html_text[idx - 1:]
+                unescaped = raw.replace(chr(92) + chr(34), chr(34)).replace(chr(92) + chr(92), chr(92))
+                try:
+                    obj, _ = json.JSONDecoder().raw_decode(unescaped)
+                    extracted = obj.get("initialBuilds", {}).get("builds", [])
+                except Exception:
+                    pass
+            # 2. Fallback: wyszukiwanie tablicy builds regexem
+            if not extracted:
+                m = re.search(r'\"builds\":(\[\{.+?\}\])(?:,\"|\})', html_text)
+                if m:
+                    try:
+                        raw = m.group(1).replace(chr(92) + chr(34), chr(34)).replace(chr(92) + chr(92), chr(92))
+                        extracted = json.loads(raw)
+                    except Exception:
+                        pass
+            # 3. Fallback wsteczny (starsze streamy Next.js)
+            if not extracted:
+                fragments = re.findall(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', html_text)
+                if fragments:
+                    full_stream = "".join(fragments).replace(chr(92) + chr(34), chr(34)).replace(chr(92) + chr(92), chr(92))
                     for key in ['"builds":', '"godBuilds":']:
                         pos = full_stream.rfind(key)
                         if pos != -1:
                             json_str = self._extract_balanced_json(full_stream, full_stream.find("[", pos))
                             if json_str:
-                                raw_builds = json.loads(json_str)
+                                extracted = json.loads(json_str)
                                 break
-                    
-                    if raw_builds:
-                        for rb in raw_builds:
-                            relics, starters, core, consumables = [], [], [], []
-                            for it_obj in rb.get("items", []):
-                                info = self._get_item_info(it_obj)
-                                if not info or not info["name"]: continue
-                                name = info["name"]
-                                if it_obj.get("isStartingBuild"):
-                                    starters.append(name)
-                                else:
-                                    core.append(name)
+            return extracted
 
-                            patch_obj = rb.get("patch", {})
-                            current_patch_str = self.get_current_game_patch()
-                            patch_name = patch_obj.get("patchShortName", current_patch_str) if isinstance(patch_obj, dict) else str(patch_obj)
+        def _fetch_variant(variant_tuple):
+            v_kind, v_url = variant_tuple
+            print(f"[Scraper] Pobieranie buildów ({v_kind}): {v_url}")
+            resp = self._get_with_retry(v_url, timeout=10, max_retries=2, use_session=True, label=f"Scraper SmiteSource ({v_kind})")
+            if resp and resp.status_code == 200:
+                return v_kind, _extract_raw_builds_from_html(resp.text)
+            return v_kind, []
 
-                            has_aspect = False
-                            gods_data = rb.get("gods", [])
-                            if gods_data and isinstance(gods_data, list):
-                                talent = gods_data[0].get("talent")
-                                if talent and isinstance(talent, dict) and talent.get("name"):
-                                    has_aspect = True
+        try:
+            variant_results = list(self.executor.map(_fetch_variant, query_variants))
+            raw_builds_with_source = []
+            seen_raw_slugs = set()
+            for v_kind, v_builds in variant_results:
+                for rb in v_builds or []:
+                    rb_slug = rb.get("slug", "")
+                    if rb_slug and rb_slug in seen_raw_slugs:
+                        continue
+                    if rb_slug:
+                        seen_raw_slugs.add(rb_slug)
+                    raw_builds_with_source.append((v_kind, rb))
+
+            # Sortujemy chronologicznie po dacie utworzenia (createdAt malejąco), tak jak sort=recent na SmiteSource
+            raw_builds_with_source.sort(
+                key=lambda item: str((item[1] or {}).get("createdAt") or ""),
+                reverse=True
+            )
+
+            if raw_builds_with_source:
+                for v_kind, rb in raw_builds_with_source:
+                        rb_slug = rb.get("slug", "")
+                        if not first_build_slug and rb_slug:
+                            first_build_slug = rb_slug
                             
-                            if not has_aspect:
-                                has_aspect = "ASPECT" in str(rb.get("title", "")).upper()
-
-                            raw_roles = rb.get("roles", [])
-                            roles = [str(r) for r in raw_roles] if raw_roles else []
-
-                            user_data = rb.get("user", {})
+                        # Items parsing po itemSlot
+                        items = rb.get("items") or []
+                        
+                        # 1. Starting items (Starter + Relic + Conquest Curio + T1 item + Potions/Wards)
+                        # Odrzucamy duplikaty Curio z innych trybów (20, 21, 22)
+                        starting_items_raw = [it for it in items if it.get("isStartingBuild") and it.get("itemSlot") not in (20, 21, 22)]
+                        starting_items_sorted = sorted(starting_items_raw, key=lambda x: self.STARTER_SLOT_ORDER.get(x.get("itemSlot", 99), 99))
+                        starters = [(it.get("item") or {}).get("name") for it in starting_items_sorted if (it.get("item") or {}).get("name")]
+                        
+                        # 2. Final items: Slot 0 (Upgraded starter) + Sloty 1..6 (Core Items) + Slot 7 (Relic)
+                        final_items_raw = [it for it in items if not it.get("isStartingBuild")]
+                        upgraded_starters = [it for it in final_items_raw if it.get("itemSlot") == 0]
+                        core_items = sorted([it for it in final_items_raw if 1 <= it.get("itemSlot", 0) <= 6], key=lambda x: x.get("itemSlot", 0))
+                        relic_items = [it for it in final_items_raw if it.get("itemSlot") == 7]
+                        
+                        final_ordered = upgraded_starters + core_items + relic_items
+                        core = [(it.get("item") or {}).get("name") for it in final_ordered if (it.get("item") or {}).get("name")]
+                        relics = [(it.get("item") or {}).get("name") for it in relic_items if (it.get("item") or {}).get("name")]
+                        
+                        # 3. Consumables
+                        consumables_raw = [it for it in items if it.get("itemSlot") in (8, 9)]
+                        consumables = [(it.get("item") or {}).get("name") for it in consumables_raw if (it.get("item") or {}).get("name")]
+                        
+                        # Statystyki (Match evidence & win rate wg SmiteSource)
+                        games = rb.get("matchEvidenceGames") or 0
+                        wins = min(games, rb.get("matchEvidenceWins") or 0)
+                        losses = max(0, games - wins)
+                        match_score = rb.get("matchScore") or 0
+                        evidence_kind = rb.get("matchEvidenceKind") or "matched"
+                        has_evidence = (evidence_kind == "matched" and games > 0 and match_score > 0)
+                        win_rate_val = round((wins / games) * 100) if has_evidence else 0
+                        win_rate_str = f"{win_rate_val}%" if has_evidence else ""
+                        tier = self._calculate_tier(match_score, games, evidence_kind)
+                        total_cost = sum(((it.get("item") or {}).get("totalGoldCost") or it.get("itemCost") or 0) * max(1, it.get("quantity") or 1) for it in final_items_raw)
+                        
+                        # Patch
+                        patch_obj = rb.get("patch") or {}
+                        current_patch_str = self.get_current_game_patch()
+                        patch_name = patch_obj.get("patchShortName", current_patch_str) if isinstance(patch_obj, dict) else str(patch_obj)
+                        
+                        # Aspect (sprawdzamy źródło zapytania aspect=aspect oraz obiekt talent)
+                        has_aspect = (v_kind == "recent_aspect")
+                        gods_data = rb.get("gods") or []
+                        if not has_aspect and gods_data and isinstance(gods_data, list):
+                            g0 = gods_data[0]
+                            if g0.get("talent") or g0.get("talentSlug") or g0.get("talentMasterId") or g0.get("aspectId"):
+                                has_aspect = True
+                        if not has_aspect and (rb.get("talent") or rb.get("aspectId")):
+                            has_aspect = True
                             
-                            author_name = "Unknown"
-                            profiles = user_data.get("profiles", [])
-                            if profiles and isinstance(profiles, list) and len(profiles) > 0:
-                                profile = profiles[0]
-                                author_name = (
-                                    profile.get("customDisplayName") or
-                                    profile.get("twitchDisplayName") or
-                                    profile.get("displayName") or
-                                    "Unknown"
-                                )
-                            
-                            if not author_name or author_name == "Unknown":
-                                author_name = (
-                                    user_data.get("name") or 
-                                    user_data.get("displayName") or 
-                                    user_data.get("username") or
-                                    rb.get("authorName") or
-                                    rb.get("creatorName") or
-                                    "Unknown"
-                                )
-
-                            all_builds.append(SmiteBuild(
-                                title=str(rb.get("title", "Build")),
-                                patch=patch_name,
-                                is_aspect=has_aspect,
-                                roles=roles,
-                                starter_items=starters,
-                                final_items=core,
-                                relics=relics,
-                                consumables=consumables,
-                                swap_items=[],
-                                build_url=f"{self.base_url}/build/{rb.get('slug', '')}",
-                                upvotes=int(rb.get("upvoteCount", 0)),
-                                author=str(author_name),
-                                is_partner=(user_data.get("role") == "partner")
-
-
-
-                            ))
+                        # Roles
+                        roles = [str(r) for r in (rb.get("roles") or []) if r]
+                        
+                        # Author & Partner/Creator
+                        user_data = rb.get("user") or {}
+                        author_name = "Unknown"
+                        profiles = user_data.get("profiles") or []
+                        if profiles and isinstance(profiles, list) and len(profiles) > 0:
+                            profile = profiles[0]
+                            author_name = (
+                                profile.get("customDisplayName") or
+                                profile.get("twitchDisplayName") or
+                                profile.get("displayName") or
+                                "Unknown"
+                            )
+                        if not author_name or author_name == "Unknown":
+                            author_name = (
+                                user_data.get("name") or 
+                                user_data.get("displayName") or 
+                                user_data.get("username") or
+                                rb.get("authorName") or
+                                rb.get("creatorName") or
+                                "Unknown"
+                            )
+                        is_partner = user_data.get("role") in ("partner", "creator") or bool(rb.get("isFeatured"))
+                        
+                        # Swaps (dostępne bezpośrednio w initialBuilds!)
+                        optional_swaps = []
+                        for opt in rb.get("optionalItems") or []:
+                            f_name = (opt.get("item") or {}).get("name")
+                            t_name = (opt.get("optionalItem") or {}).get("name")
+                            reason = (opt.get("notes") or "").strip() or "Situational"
+                            if f_name and t_name:
+                                optional_swaps.append({"from": f_name, "to": t_name, "reason": reason})
+                                
+                        # Ability Priority (dostępne bezpośrednio w initialBuilds!)
+                        raw_order = rb.get("abilityLevelOrder") or []
+                        ability_priority = [str(x) for x in raw_order if isinstance(x, int) and x > 0]
+                        
+                        build_obj = SmiteBuild(
+                            title=str(rb.get("title", "Build")),
+                            patch=patch_name,
+                            is_aspect=has_aspect,
+                            roles=roles,
+                            starter_items=starters,
+                            final_items=core,
+                            relics=relics,
+                            consumables=consumables,
+                            swap_items=optional_swaps,
+                            build_url=f"{self.base_url}/build/{rb_slug}",
+                            upvotes=int(rb.get("upvoteCount") or games or 0),
+                            author=str(author_name),
+                            is_partner=is_partner,
+                            ability_priority=ability_priority,
+                            tier=tier,
+                            win_rate=win_rate_str,
+                            wins=wins,
+                            losses=losses,
+                            total_matches=games,
+                            cost=total_cost,
+                        )
+                        all_builds.append(build_obj)
         except Exception as e:
             print(f"[Scraper] Błąd pobierania bazy danych buildów: {e}")
+            
         if not all_builds: return None
         
+        # Pobieramy ikony i nazwy umiejętności dla danego boga raz i przypisujemy do buildów
+        try:
+            god_abilities = self._get_god_abilities(slug, first_build_slug)
+            if god_abilities:
+                for b in all_builds:
+                    b.ability_details = god_abilities
+        except Exception as e:
+            print(f"[Scraper] Nie udało się pobrać umiejętności dla boga {god_name}: {e}")
+            
         # Deduplikacja
         seen_urls = set()
         unique_builds = []
@@ -516,199 +692,96 @@ class SmiteSourceScraper:
         return res_data
 
     def fetch_build_details(self, build_obj: SmiteBuild):
-        """Pobiera detale (np. Swapy) ze strony buildu."""
+        """Pobiera detale (np. Swapy, siatkę skilli) ze strony buildu."""
         if not build_obj.build_url: return build_obj
+        
+        # Jeśli build ma już pobrane swapy, priorytet umiejętności i detale skilli, pomijamy zapytanie sieciowe!
+        if build_obj.swap_items and len(build_obj.ability_priority) >= 20 and build_obj.ability_details:
+            return build_obj
+            
         try:
-            import requests, re
-            r = self.session.get(build_obj.build_url, timeout=5)
-            if r.status_code != 200: return build_obj
+            r = self._get_with_retry(build_obj.build_url, timeout=8, max_retries=2, use_session=True, label="BuildDetails")
+            if not r or r.status_code != 200:
+                return build_obj
             
-            # REKONSTRUKCJA STRUMIENIA NEXT.JS
-            # Dane są przesyłane w kawałkach: self.__next_f.push([1,"..."])
-            # Musimy je wszystkie wyłuskać i skleić, inaczej duże obiekty JSON (jak skille) są ucięte.
-            chunks = re.findall(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', r.text)
-            if chunks:
-                stream = "".join(chunks).replace('\\"', '"').replace('\\\\', '\\')
-            else:
-                # Fallback jeśli strona nie używa streamingu lub ma inny format
-                stream = r.text.replace('\\"', '"').replace('\\\\', '\\')
+            stream = r.text
+            import html
             
-            # Pobieramy dynamicznie ikony ze SmiteSource CDN dla wszystkich przedmiotów w buildzie (w tym usuniętych)
-            try:
-                for m in re.finditer(r'"name"\s*:\s*"([^"]+)"\s*,\s*"imagePath"\s*:\s*"([^"]+)"', stream):
-                    item_name = m.group(1)
-                    img_path = m.group(2)
-                    self._check_and_download_smitesource_item_image(item_name, img_path)
-            except Exception as e:
-                print(f"[Scraper] Blad podczas dynamicznego skanowania ikon w strumieniu: {e}")
-
-            swaps = []
-            
-            def slugify(text):
-                return text.lower().replace("'", "").replace(" ", "-")
-
-            swaps_match = re.search(r'Swaps \(', stream, re.IGNORECASE)
-            if swaps_match:
-                sub = stream[swaps_match.start():]
-                
-                # Zbieramy ID divów swapów
-                slug_pattern = r'"div","([a-z0-9-]+)-\d+"'
-                slug_matches = re.findall(slug_pattern, sub)
-                
-                seen = set()
-                unique_slugs = []
-                for match in slug_matches:
-                    # Odrzucamy krótkie przypadkowe matche
-                    if match not in seen and len(match.split("-")) >= 2:
-                        seen.add(match)
-                        unique_slugs.append(match)
-                
-                # Szukamy powodów i docelowych przedmiotów
-                reason_blocks = sub.split('className":"flex-1 text-slate-400 text-xs leading-relaxed","children":"')
-                reasons_data = []
-                for i, block in enumerate(reason_blocks[1:]):
-                    reason = block.split('"')[0]
-                    prev_block = reason_blocks[i]
-                    alts = re.findall(r'"alt":"([^"]+)"', prev_block)
-                    if alts:
-                        reasons_data.append({"to_item": alts[-1], "reason": reason.replace("\\n", "\n").strip()})
-                
-                all_build_items = build_obj.starter_items + build_obj.final_items
-                
-                for r_data in reasons_data:
-                    to_item = r_data["to_item"]
-                    to_slug = slugify(to_item)
-                    reason = r_data["reason"]
-                    
-                    matched_slug = None
-                    for slug in unique_slugs:
-                        if to_slug in slug:
-                            matched_slug = slug
-                            break
-                            
-                    if matched_slug:
-                        from_slug = matched_slug.replace(f"-{to_slug}", "").replace(f"{to_slug}-", "")
-                        from_item = "Unknown"
-                        
-                        for item in all_build_items:
-                            if slugify(item) == from_slug:
-                                from_item = item
-                                break
-                                
-                        if from_item == "Unknown":
-                            from_item = from_slug.replace('-', ' ').title()
-                            
-                        swaps.append({
-                            "from": from_item,
-                            "to": to_item,
-                            "reason": reason
-                        })
-            if swaps:
-                # Dodajemy tylko te, których jeszcze nie ma (unikamy duplikatów)
-                existing_tos = [s['to'].lower() for s in build_obj.swap_items]
-                for s in swaps:
-                    if s['to'].lower() not in existing_tos:
-                        build_obj.swap_items.append(s)
-
-            # --- Ability Leveling Path (1-20) ---
-            leveling_path = [None] * 20
-            ability_details = {} # slot -> {"name", "img"}
-            
-            # Mapowanie rzędów na faktyczne sloty i zbieranie detali
-            row_to_slot = {}
-            
-            # Nowa, bardziej odporna metoda zliczania nawiasów (radzi sobie z zagnieżdżonymi JSON)
-            for m in re.finditer(r'"ability":\{', stream):
-                start = m.end()
-                braces = 1
-                end = start
-                for i, char in enumerate(stream[start:]):
-                    if char == '{': braces += 1
-                    elif char == '}': braces -= 1
-                    if braces == 0:
-                        end = start + i
-                        break
-                
-                chunk = stream[start:end]
-                # Bardziej elastyczne regexy (obsługują spacje i cudzysłowy wokół cyfr)
-                n_match = re.search(r'"name"\s*:\s*"([^"]+)"', chunk)
-                s_match = re.search(r'"slot"\s*:\s*"?(\d+)"?', chunk)
-                i_match = re.search(r'"imgPath"\s*:\s*"([^"]+)"', chunk)
-                
-                if n_match and s_match:
-                    slot = s_match.group(1)
-                    img = i_match.group(1) if i_match else ""
-                    # Jeśli slot jeszcze nie istnieje lub obecny wpis nie ma obrazka
-                    if slot not in ability_details or not ability_details[slot].get("img"):
-                        ability_details[slot] = {
-                            "name": n_match.group(1),
-                            "img": img
+            # 1. Ability details (Slot 1-4)
+            if not build_obj.ability_details:
+                pattern = re.compile(r'\\"ability\\":\{\\"name\\":\\"(?P<name>[^"]+)\\",\\"imgPath\\":\\"(?P<img_path>[^"]+)\\",\\"slot\\":(?P<slot>[1-4])')
+                details = {}
+                for m in ability_pattern.finditer(stream):
+                    slot = m.group("slot")
+                    if slot not in details:
+                        img_path = m.group("img_path")
+                        details[slot] = {
+                            "name": m.group("name"),
+                            "img": img_path,
+                            "local_path": self.download_ability_icon(img_path)
                         }
+                if details:
+                    build_obj.ability_details = details
+            else:
+                for slot, info in build_obj.ability_details.items():
+                    if info.get("img") and not info.get("local_path"):
+                        info["local_path"] = self.download_ability_icon(info["img"])
 
-            # Mapowanie row_id z Next.js na sloty - bardziej elastyczne
-            # Szukamy korelacji między numerem rzędu a slotem umiejętności
-            row_matches = re.finditer(r'"(\d+)"\s*:\s*\{[^}]*?"ability"\s*:\s*\{[^}]*?"slot"\s*:\s*"?(\d+)"?', stream)
-            for m in row_matches:
-                row_id, slot_id = m.group(1), m.group(2)
-                row_to_slot[row_id] = slot_id
+            # 2. Ability leveling path (1-20)
+            if len(build_obj.ability_priority) < 20:
+                matches = re.findall(r'\"([1-4])-(\d+)-\d+\",\{\"style\":\{\"backgroundColor\"', stream)
+                if matches:
+                    points = sorted([(int(lvl), slot) for slot, lvl in matches], key=lambda x: x[0])
+                    build_obj.ability_priority = [slot for lvl, slot in points]
+                else:
+                    row_to_slot = {str(i): str(i) for i in range(1, 5)}
+                    old_path = [None] * 20
+                    upgrade_indices = re.finditer(r'["\]+(\d+)-(\d+)["\]+', stream)
+                    for match in upgrade_indices:
+                        row_id, lvl_str = match.group(1), match.group(2)
+                        lookahead = stream[match.end():match.end()+300]
+                        val_match = re.search(r'children":(\d+)', lookahead)
+                        if val_match:
+                            lvl_idx = int(lvl_str) - 1
+                            if 0 <= lvl_idx < 20:
+                                old_path[lvl_idx] = row_to_slot.get(row_id, row_id)
+                    if any(old_path):
+                        build_obj.ability_priority = [x for x in old_path if x is not None]
 
-            if not row_to_slot:
-                for i in range(1, 5): row_to_slot[str(i)] = str(i)
+            # 3. Swaps
+            if not build_obj.swap_items:
+                swaps = []
+                for m in re.finditer(r'<p class="flex-1 text-ss-fg-muted text-xs leading-relaxed">(.*?)</p>', stream):
+                    reason = html.unescape(m.group(1)).strip()
+                    start_pos = max(0, m.start() - 2500)
+                    chunk = stream[start_pos:m.start()]
+                    labels = re.findall(r'<a[^>]+aria-label="([^"]+)"', chunk)
+                    if len(labels) >= 2:
+                        from_item = html.unescape(labels[-2])
+                        to_item = html.unescape(labels[-1])
+                        swaps.append({"from": from_item, "to": to_item, "reason": reason})
+                if swaps:
+                    build_obj.swap_items = swaps
 
-            # Szukamy kafelków ulepszeń - bardziej odporna metoda
-            upgrade_indices = re.finditer(r'["\\]+(\d+)-(\d+)["\\]+', stream)
-            for match in upgrade_indices:
-                row_id = match.group(1)
-                lvl_str = match.group(2)
-                
-                # Szukamy "children":X w bliskim sąsiedztwie po znalezieniu "row-lvl"
-                # Zwiększamy zasięg do 300, bo klasy CSS potrafią być bardzo długie
-                lookahead = stream[match.end():match.end()+300]
-                val_match = re.search(r'children":(\d+)', lookahead)
-                if val_match:
-                    lvl_idx = int(lvl_str) - 1
-                    if 0 <= lvl_idx < 20:
-                        slot = row_to_slot.get(row_id, row_id)
-                        leveling_path[lvl_idx] = slot
-
-            parsed_count = len([x for x in leveling_path if x is not None])
-            print(f"[Scraper] Sparsowano {parsed_count}/20 kroków ulepszeń.")
-
-            if any(leveling_path):
-                print(f"[Scraper] Znaleziono ścieżkę ulepszeń: {leveling_path}")
-            
-            # Pobierz ikony w tle (lub zwróć ścieżki)
-            for slot, info in ability_details.items():
-                if info.get("img"):
-                    info["local_path"] = self.download_ability_icon(info["img"])
-
-            build_obj.ability_priority = leveling_path # Zachowujemy None dla zachowania indeksów poziomów
-            build_obj.ability_details = ability_details
             return build_obj
         except Exception as e:
-            print(f"Error fetching details: {e}")
+            print(f"[Scraper] Błąd podczas pobierania szczegółów buildu: {e}")
             return build_obj
 
     def download_ability_icon(self, img_path):
         """Pobiera ikonę skilla ze SmiteSource (z ich CDN)."""
         if not img_path: return ""
-        
-        # FIX: Usuwamy escapowane ukośniki \/ oraz wiodące /
         clean_path = img_path.replace('\\/', '/').lstrip('/')
-        
         if clean_path.endswith('.'):
             clean_path += "png"
-
         elif '/' in clean_path:
             filename = clean_path.split('/')[-1]
             if not filename:
-                return "" # To jest folder (kończy się na /), ignoruj
+                return ""
             if '.' not in filename:
-                # Jeśli nie ma rozszerzenia, spróbuj wymusić .png
                 clean_path += ".png"
 
         url = f"https://cdn.smitesource.com/cdn-cgi/image/width=3840,format=auto,quality=75/{clean_path}"
-        
         safe_name = os.path.basename(clean_path)
         if not safe_name or "." not in safe_name: return ""
         
@@ -717,18 +790,17 @@ class SmiteSourceScraper:
         local_path = os.path.join(local_dir, safe_name)
         
         if not os.path.exists(local_path):
-
             try:
                 print(f"[Scraper] Pobieranie ikony umiejętności: {url}")
                 r = requests.get(url, timeout=5)
                 if r.status_code == 200:
                     with open(local_path, 'wb') as f:
                         f.write(r.content)
-                    print(f"✅ Pobrano: {safe_name}")
+                    print(f"[OK] Pobrano ikone: {safe_name}")
                 else:
-                    print(f"❌ Błąd pobierania ({r.status_code}): {url}")
+                    print(f"[ERR] Blad pobierania ikony ({r.status_code}): {url}")
             except Exception as e:
-                print(f"❌ Błąd sieci przy pobieraniu ikony: {e}")
+                print(f"[ERR] Blad sieci przy pobieraniu ikony: {e}")
         return local_path
 
     def download_god_portraits(self, god_names):
@@ -791,7 +863,11 @@ class SmiteSourceScraper:
                     print(f"[Scraper Cache] Zwracam dane z pamięci podręcznej dla: {god_name} (Wiek: {int(time.time() - timestamp)}s)")
                     return cached_data
                     
-        god_slug = god_name.capitalize().strip().replace(" ", "").replace("'", "")
+        clean_god_key = god_name.lower().strip()
+        god_slug = self.SMITE2_LIVE_SLUG_MAP.get(
+            clean_god_key,
+            god_name.title().strip().replace(" ", "").replace("'", "")
+        )
         
         # 1. Sprawdź liczbę gier na aktualnym patchu
         url_initial = f"https://smite2.live/god/{god_slug}/builds?skill=master_plus"
@@ -819,7 +895,8 @@ class SmiteSourceScraper:
                     versions.append(match.group(1))
                     
         current_version = versions[0] if len(versions) >= 1 else "ob34.0"
-        self._cached_game_patch = current_version.upper()
+        if versions:
+            self._cached_game_patch = current_version.upper()
         previous_version = versions[1] if len(versions) >= 2 else ""
 
         def get_count(skill, version_param):
@@ -965,10 +1042,13 @@ class SmiteSourceScraper:
             followup_tasks = []
             for skill, future in initial_tasks:
                 res_dict = future.result()
-                all_matches.extend(res_dict["matches"])
+                page1_matches = res_dict["matches"]
+                all_matches.extend(page1_matches)
                 max_page = res_dict["max_page"]
                 
-                if max_page > 1 and not fast_preview:
+                # Jeśli ostatni mecz na 1. stronie należy już do starszego patcha, kolejne strony nie mają meczów z `version`
+                last_match_matches_ver = bool(page1_matches) and version_matches(page1_matches[-1].get("patch", ""), version)
+                if max_page > 1 and not fast_preview and last_match_matches_ver:
                     # Pobieramy KAŻDĄ możliwą stronę, bez żadnych limitów i kompromisów!
                     for p in range(2, max_page + 1):
                         followup_tasks.append(self.executor.submit(fetch_role_page, skill, None, p, version, 200, True))
@@ -1011,6 +1091,7 @@ class SmiteSourceScraper:
                     grouped_matches[key] = []
                     
             # Sprawdź, czy jakakolwiek rola/aspekt ma mniej niż 30 meczów i potrzebuje Obsidian+
+            pre_obsidian_counts = {k: len(v) for k, v in grouped_matches.items()}
             needs_obsidian_keys = set()
             needs_obsidian_roles = set()
             for key, matches in grouped_matches.items():
@@ -1021,13 +1102,19 @@ class SmiteSourceScraper:
             if needs_obsidian_keys and not fast_preview:
                 print(f"[Scraper Stats] ({version}) Wykryto role z liczbą gier < 30: {needs_obsidian_roles}. Pobieram dane z Obsidian+...")
                 obsidian_matches = []
-                tasks_obsidian = []
-                # Reuse self.executor
-                for p in [1, 2]:
-                    tasks_obsidian.append(self.executor.submit(fetch_role_page, "obsidian_plus", None, p, version, 200, False))
-                for future in as_completed(tasks_obsidian):
-                    res_dict = future.result()
-                    obsidian_matches.extend(res_dict["matches"])
+                obs_p1 = fetch_role_page("obsidian_plus", None, 1, version, 200, False)
+                obs_p1_matches = obs_p1["matches"]
+                obsidian_matches.extend(obs_p1_matches)
+                obs_max_page = obs_p1["max_page"]
+                
+                obs_last_matches_ver = bool(obs_p1_matches) and version_matches(obs_p1_matches[-1].get("patch", ""), version)
+                if obs_max_page > 1 and obs_last_matches_ver:
+                    tasks_obsidian = []
+                    for p in range(2, obs_max_page + 1):
+                        tasks_obsidian.append(self.executor.submit(fetch_role_page, "obsidian_plus", None, p, version, 200, True))
+                    for future in as_completed(tasks_obsidian):
+                        res_dict = future.result()
+                        obsidian_matches.extend(res_dict["matches"])
                 
                 print(f"[Scraper Stats] ({version}) Pomyślnie pobrano {len(obsidian_matches)} meczów z Obsidian+.")
                 
@@ -1043,8 +1130,9 @@ class SmiteSourceScraper:
                     if not m["role"] or m["role"] == "Unknown":
                         continue
                     key = (m["role"], m["aspect"])
-                    if key not in needs_obsidian_keys:
+                    if pre_obsidian_counts.get(key, 0) >= 30:
                         continue
+                    needs_obsidian_keys.add(key)
                     m_id = m.get("match_id")
                     p_id = m.get("player_id")
                     if m_id and p_id:
@@ -1065,7 +1153,11 @@ class SmiteSourceScraper:
         if not self.item_db:
             self.fetch_master_items()
             
-        t3_items = set()
+        t3_items = {
+            "ashwhorl acorn",
+            "briskberry acorn",
+            "thistlethorn acorn",
+        }
         relics_in_db = set()
         for name, info in self.item_db.items():
             if isinstance(info, dict):
@@ -1073,7 +1165,7 @@ class SmiteSourceScraper:
                 name_cleaned = name.lower().strip()
                 if cat == "item":
                     img_url = info.get("image_url") or ""
-                    if "/T3_" in img_url:
+                    if info.get("is_t3") or "/T3_" in img_url or "_T3_" in img_url or "/Items/T3/" in img_url:
                         t3_items.add(name_cleaned)
                 elif cat == "relic":
                     relics_in_db.add(name_cleaned)
@@ -1143,15 +1235,10 @@ class SmiteSourceScraper:
 
             # Sprawdzamy, czy każdy z 6 slotów na przedmioty ma co najmniej 2 unikalne przedmioty,
             # a slot na starter zawiera co najmniej 1 przedmiot.
-            if god_name.lower() == "ratatoskr":
-                # Ratatoskr ma ucięte buildy, więc nie wymagamy pełnych 6 slotów!
-                # Wystarczy, że spełni wymóg 30 rozegranych meczów.
-                has_enough_variety = True
-            else:
-                has_enough_variety = (
-                    len(starter_counter) >= 1 and
-                    all(len(slot_counters[i]) >= 2 for i in range(6))
-                )
+            has_enough_variety = (
+                len(starter_counter) >= 1 and
+                all(len(slot_counters[i]) >= 2 for i in range(6))
+            )
             
             sufficient = (total_games >= 30) and has_enough_variety
             return sufficient, starter_counter, slot_counters, relic_counter, total_games
@@ -1240,12 +1327,8 @@ class SmiteSourceScraper:
                     reason = f"[!] Niewystarczająca liczba rozegranych meczów na roli {role} (Rozegrano: {total_games} / 30)"
                     reason_mini = f"[!] Mało gier na roli {role} ({total_games}/30)"
                 else:
-                    if god_name.lower() == "ratatoskr":
-                        reason = f"[!] Brak spójnych danych o przedmiotach dla roli {role}."
-                        reason_mini = f"[!] Brak danych dla {role}"
-                    else:
-                        reason = f"[!] Zbyt mała różnorodność przedmiotów na roli {role} (wymagane min. 2 unikalne przedmioty na slot)"
-                        reason_mini = f"[!] Mała różnorodność na roli {role}"
+                    reason = f"[!] Zbyt mała różnorodność przedmiotów na roli {role} (wymagane min. 2 unikalne przedmioty na slot)"
+                    reason_mini = f"[!] Mała różnorodność na roli {role}"
                     
                 builds.append(SmiteBuild(
                     title=f"{role}{aspect_suffix} (Meta Stats - {target_version.upper()})",
